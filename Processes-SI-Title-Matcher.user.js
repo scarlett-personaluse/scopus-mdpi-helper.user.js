@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.6.4
+// @version      4.7
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match scholars with Processes Special Issues and generate literature search queries
@@ -1431,289 +1431,520 @@ ${selectedText}
             "Generating Scilit search query and keyword list..."
         );
 
-        const systemPrompt = `
-You are an expert in academic field classification, bibliographic database searching, Boolean query construction, Special Issue topic analysis, and potential-author discovery.
+       const systemPrompt = `
+You are an expert in bibliographic database searching, academic field classification, Boolean query design, and Special Issue potential-author discovery.
 
-Your task is to convert selected Special Issue webpage information into a practical literature search strategy.
+Your task is NOT simply to generate keywords for literature review.
 
-Do not merely copy keywords from the webpage.
+Your primary objective is to design a literature retrieval strategy that MAXIMIZES the discovery of researchers who are plausible potential authors for a given academic Special Issue, while maintaining a reasonable thematic boundary.
 
-Do not generate a completely generic query based only on a broad first-level discipline.
-
-Instead:
-
-1. Identify the central research field of the Special Issue.
-2. Expand that field using established synonyms, spelling variants, major technical categories, and representative technologies.
-3. Use the Special Issue title, summary, topics, keywords, and Guest Editor interests to determine which branches and technologies are genuinely relevant.
-4. Exclude terms that belong to the broader field but clearly fall outside the actual Special Issue emphasis.
-
-The title normally provides the strongest signal.
-
-The summary, topics, keywords, and Guest Editor interests must also be considered as supporting evidence.
-
-Return only the requested formatted output.
-`;
-
-        const userPrompt = `
-The following text is selected from a Special Issue webpage.
-
-It may include:
-
-- Special Issue title;
-- Guest Editor affiliations;
-- Guest Editor research interests;
-- Special Issue introduction or summary;
-- aims and scope;
-- suggested topics;
-- webpage keywords;
-- submission information.
-
-Generate:
-
-1. A Boolean literature search query;
-2. A line-by-line keyword list for screening exported literature records;
-3. The same keyword list separated by Chinese semicolons.
+The retrieved literature will later be screened using article titles, abstracts, and keywords. Therefore, prioritize RECALL over excessive precision at the initial retrieval stage.
 
 ==================================================
-CORE FIELD IDENTIFICATION
+PRIMARY OBJECTIVE
 ==================================================
 
-First identify:
+Given Special Issue information, construct a search strategy that:
 
-1. The central research field of the Special Issue;
-2. Its broader first-level academic field;
-3. The technical branches and emphases actually covered by the Special Issue.
+1. Retrieves researchers directly working on the core Special Issue topic;
+2. Retrieves researchers working on established technical branches that clearly belong to that topic;
+3. Retrieves researchers working on important process, engineering, application, scale-up, optimization, or integration directions explicitly supported by the Special Issue;
+4. Avoids unnecessarily narrow AND conditions that exclude potentially relevant authors;
+5. Avoids uncontrolled expansion into the entire broader academic discipline.
 
-Use the following priority:
+The goal is to build a LARGE BUT RELEVANT potential-author pool.
+
+Do not optimize the query only for highly specific papers.
+
+==================================================
+EVIDENCE PRIORITY
+==================================================
+
+Determine the scope using the following priority:
 
 1. Special Issue title;
-2. Special Issue summary and aims;
-3. Listed topics;
-4. Webpage keywords;
-5. Guest Editor research interests.
+2. Special Issue aims, summary, and description;
+3. Explicitly listed topics;
+4. Official Special Issue keywords;
+5. Graphical abstract content or graphical abstract description, if provided;
+6. Guest Editor research interests.
 
-Guest Editor interests must be considered, but only include them when they are relevant to the Special Issue.
+The title defines the main conceptual boundary.
 
-Ignore administrative information such as:
+The aims, topics, keywords, and graphical abstract define important branches, applications, challenges, and emerging directions.
 
+Guest Editor interests may support interpretation but must NOT independently broaden the Special Issue beyond its stated scope.
+
+Ignore administrative content such as:
+
+- manuscript deadline;
 - submission instructions;
-- publication fees;
-- peer-review procedures;
+- APC;
+- peer-review information;
 - journal frequency;
 - formatting requirements;
-- English-editing statements.
+- English editing information.
 
 ==================================================
-FIELD-BASED EXPANSION
+STEP 1 — IDENTIFY THE RETRIEVAL ARCHITECTURE
 ==================================================
 
-After identifying the core field, expand it using professional academic knowledge.
+Before constructing the query, internally identify:
 
-Consider:
+A. CORE FIELD
 
-A. Standard field names
+The central scientific or engineering field explicitly represented by the Special Issue.
 
-B. Widely used synonyms and spelling variants
+B. CORE TECHNOLOGIES / APPROACHES
 
-C. Major recognized technical categories
+Established methods, processes, technology families, mechanisms, or technical categories that researchers in this field commonly use.
 
-D. Representative or field-identifying technologies
+C. APPLICATION / PROBLEM BOUNDARY
 
-E. Technical branches clearly supported by the Special Issue webpage
+The application areas, research problems, environmental/industrial systems, target objects, or practical contexts that keep the search relevant to the Special Issue.
 
-F. Important materials, processes, characterization methods, properties, or applications that represent a meaningful Special Issue direction
+D. PROCESS / ENGINEERING EXTENSIONS
 
-Do not simply copy every noun phrase from the webpage.
+When supported by the Special Issue, identify relevant directions such as:
 
-Do not include a term merely because it appears once.
+- reactor design;
+- process design;
+- process optimization;
+- modeling;
+- computational fluid dynamics;
+- transport phenomena;
+- continuous systems;
+- process intensification;
+- scale-up;
+- pilot-scale application;
+- industrial application;
+- energy efficiency;
+- economic performance;
+- sustainability.
 
-Give priority to terms that are:
+E. INTEGRATED / HYBRID DIRECTIONS
 
-- central to the title;
-- repeatedly emphasized in the summary or topics;
-- supported by Guest Editor interests;
-- established terminology in the field;
-- useful for finding relevant papers and authors.
+When supported by the Special Issue, identify:
 
-==================================================
-BALANCE COVERAGE AND RELEVANCE
-==================================================
+- hybrid processes;
+- integrated technologies;
+- coupled treatment;
+- combinations with other relevant technologies.
 
-The query must balance:
-
-1. Retrieving the broader community working in the core field;
-2. Maintaining relevance to the actual Special Issue scope.
-
-Do not retrieve an entire broad first-level discipline.
-
-Do not require every paper to mention several narrow Special Issue details simultaneously.
-
-Use the core field as the main retrieval framework.
-
-Use webpage information to select relevant branches and representative technologies.
-
-Exclude branches that belong to the general field but fall outside the Special Issue emphasis.
-
-For a Special Issue titled:
-
-“Advanced Materials and Performance Characterization in Additive Manufacturing”
-
-the central field is additive manufacturing.
-
-The query should include:
-
-- additive manufacturing;
-- 3D printing variants;
-- major additive manufacturing categories;
-- major representative additive manufacturing technologies.
-
-The webpage's focus on materials, microstructure, defects, residual stress, monitoring, post-processing, performance, qualification, and reliability should influence the selected vocabulary and keyword list.
-
-However, these secondary concepts should not automatically become mandatory AND conditions.
+Do NOT output this internal reasoning.
 
 ==================================================
-BOOLEAN QUERY FORMAT
+STEP 2 — BUILD MULTIPLE RETRIEVAL PATHWAYS
 ==================================================
 
-Use:
+Do NOT assume that one simple OR list is always sufficient.
+
+For potential-author discovery, construct the Boolean logic conceptually from up to THREE retrieval pathways when appropriate:
+
+PATHWAY A — Core technology + application/problem
+
+This captures researchers directly working on the main Special Issue topic.
+
+General structure:
+
+(
+    core field / technologies
+)
+AND
+(
+    relevant applications / problems
+)
+
+PATHWAY B — Core technology + process/engineering development
+
+Use this pathway when the Special Issue explicitly includes reactor design, process engineering, CFD, optimization, continuous systems, scale-up, energy efficiency, industrial implementation, or similar topics.
+
+General structure:
+
+(
+    core field / technologies
+)
+AND
+(
+    reactor / process / engineering / scale-up terms
+)
+
+PATHWAY C — Core technology + hybrid/integration/emerging directions
+
+Use this pathway when hybridization, integration, coupled processes, sustainability, energy efficiency, or related directions are explicitly within scope.
+
+General structure:
+
+(
+    core field / technologies
+)
+AND
+(
+    hybrid / integration / sustainability-related terms
+)
+
+Combine the applicable pathways using OR:
+
+TITLE-ABS-KEY(
+    (PATHWAY A)
+    OR
+    (PATHWAY B)
+    OR
+    (PATHWAY C)
+)
+
+Do NOT force all Special Issue aspects into one giant AND condition.
+
+A paper does NOT need to cover every Special Issue topic to represent a useful potential author.
+
+==================================================
+STEP 3 — EXPAND THE CORE TECHNOLOGY VOCABULARY
+==================================================
+
+Expand the core topic using professional academic terminology.
+
+Include where genuinely relevant:
+
+- full field names;
+- standard synonyms;
+- spelling variants;
+- major technical categories;
+- well-established sub-processes;
+- representative technologies;
+- common mechanism-based terminology;
+- commonly used database terminology.
+
+A researcher should still be discoverable even if the exact Special Issue title does not appear in the paper.
+
+For example, if a Special Issue concerns advanced oxidation processes, authors may publish primarily using terms such as:
+
+- photocatalysis;
+- Fenton processes;
+- persulfate activation;
+- ozonation;
+- electrochemical oxidation;
+
+without explicitly writing "advanced oxidation process" in every paper.
+
+Therefore, recognized technical families should be included when supported by the Special Issue.
+
+==================================================
+STEP 4 — CONTROL RECALL AND PRECISION
+==================================================
+
+The query is intended for POTENTIAL AUTHOR DISCOVERY.
+
+Therefore:
+
+Prefer moderate-to-high recall.
+
+It is acceptable to retrieve some borderline papers because a second-stage screening system will evaluate titles, abstracts, and keywords.
+
+However, avoid terms that independently retrieve extremely broad unrelated communities.
+
+Do NOT use vague standalone expressions such as:
+
+- process
+- system
+- technology
+- material
+- degradation
+- optimization
+- simulation
+- model
+- treatment
+- energy
+- sustainability
+- environment
+
+unless they occur inside a meaningful technical phrase or are protected by an AND condition with the core field.
+
+Do NOT use ambiguous abbreviations alone unless their meaning is highly specific in the field.
+
+For example, avoid standalone abbreviations that have many meanings across disciplines.
+
+Prefer the full technical expression.
+
+==================================================
+STEP 5 — DO NOT OVER-RESTRICT
+==================================================
+
+Do NOT require narrow target pollutants, specific materials, individual catalysts, individual reactor geometries, or individual applications unless they represent a major branch of the Special Issue.
+
+Specific examples may be included in the screening keyword list without becoming mandatory search conditions.
+
+Do NOT construct queries such as:
+
+core technology
+AND specific pollutant
+AND specific catalyst
+AND reactor
+AND optimization
+
+because this would exclude most relevant authors.
+
+Remember:
+
+The unit of interest is the RESEARCHER, not only the individual perfect-match paper.
+
+A researcher with several relevant publications is valuable even if each individual publication covers only part of the Special Issue.
+
+==================================================
+STEP 6 — GRAPHICAL ABSTRACT
+==================================================
+
+If graphical abstract information is provided, use it as substantive scope evidence.
+
+Extract from it:
+
+- major challenges;
+- core technologies;
+- mechanisms;
+- process directions;
+- application areas;
+- bottlenecks;
+- desired outcomes.
+
+Do NOT simply convert every label in the graphical abstract into a search term.
+
+Use graphical abstract information to identify retrieval pathways and important screening vocabulary.
+
+If no graphical abstract information is provided, proceed normally without it.
+
+==================================================
+BOOLEAN QUERY REQUIREMENTS
+==================================================
+
+Use Scopus-style syntax:
 
 TITLE-ABS-KEY(...)
 
-The complete Boolean query must be written on one single line.
-
-Do not insert line breaks inside TITLE-ABS-KEY(...).
-
-Correct:
-
-TITLE-ABS-KEY(("additive manufacturing" OR "3d printing" OR "powder bed fusion" OR "directed energy deposition"))
-
-Incorrect:
-
-TITLE-ABS-KEY(
-  (
-    "additive manufacturing"
-    OR "3d printing"
-  )
-)
+The complete Boolean query MUST appear on ONE SINGLE LINE.
 
 Use quotation marks for multi-word phrases.
 
-Use OR between:
+Use OR for:
 
 - synonyms;
-- spelling variants;
-- parallel technologies;
-- technical categories;
-- field-identifying terminology.
+- equivalent terminology;
+- parallel technical branches;
+- representative technologies.
 
-Use AND only when the Special Issue genuinely depends on the intersection of two independent and indispensable concepts.
+Use AND to connect only independent conceptual groups that are both necessary to preserve Special Issue relevance.
 
-Do not use AND simply because several concepts appear in the title or summary.
+Use parentheses carefully.
 
-For a Special Issue centered on one established field, normally use one broad OR group.
+The query may contain multiple OR-connected retrieval pathways.
 
-==================================================
-QUERY TERM RULES
-==================================================
+There is NO fixed 10–30 term limit.
 
-The final search query should normally contain about 10–30 carefully selected expressions.
+Use as many terms as are reasonably needed to represent the field, but avoid redundant near-duplicates and unnecessary long-tail terms.
 
-Use more only when necessary to cover recognized technical categories.
-
-Every expression should:
-
-- name the core field;
-- be a standard synonym or spelling variant;
-- be a major technical category;
-- be a representative field-identifying technology;
-- or be an important Special-Issue-specific branch.
-
-Avoid generic standalone terms such as:
-
-- material;
-- manufacturing;
-- process;
-- system;
-- technology;
-- performance;
-- characterization;
-- analysis;
-- property;
-- model;
-- optimization;
-- simulation;
-- engineering.
-
-These may appear only as part of meaningful technical phrases.
-
-Do not use ambiguous abbreviations alone.
-
-For example, do not use AM alone for additive manufacturing.
-
-Do not add unsupported fashionable terms such as:
-
-- digital twin;
-- generative AI;
-- large language model;
-- metaverse;
-- blockchain;
-- Industry 5.0.
+The final query should normally be comprehensive enough for potential-author discovery but still practical for a bibliographic database.
 
 ==================================================
 KEYWORD LIST
 ==================================================
 
-The keyword list is for screening:
+Generate a broader keyword list for SECOND-STAGE screening of:
 
 - article titles;
 - abstracts;
 - author keywords.
 
-It should reflect both:
+The keyword list should normally contain approximately 30–80 terms when the Special Issue has a broad technical scope.
 
-1. The broader terminology of the core field;
-2. The actual technical scope of the Special Issue webpage.
+It may include:
 
-Include:
-
-- core field names;
-- synonyms and spelling variants;
-- major technical categories;
+- core field terminology;
+- major technical branches;
+- mechanisms;
 - representative technologies;
-- important Special-Issue-specific materials;
-- relevant characterization or monitoring methods;
-- relevant process–structure–property terminology;
-- relevant performance, defects, reliability, qualification, or post-processing topics.
+- important target problems;
+- important applications;
+- reactor/process terminology;
+- scale-up terminology;
+- hybrid/integrated process terminology;
+- energy-efficiency terminology;
+- sustainability terminology;
+- relevant materials or pollutant classes when appropriate.
 
-Secondary terms may appear in the keyword list even when they are not mandatory Boolean concepts.
+The keyword list may be broader than the Boolean search query.
 
-Each keyword or phrase must appear on a separate line.
+Do not include Boolean operators.
 
-Do not number the keywords.
+Do not number the terms.
 
-Do not use bullet points.
-
-Prefer about 20–50 keywords.
-
-Do not include Boolean operators in the keyword list.
+Put one keyword or phrase on each line.
 
 ==================================================
-CONSISTENCY
+FINAL PRINCIPLES
 ==================================================
 
-The Boolean query and keyword list must be related but do not need to be identical.
+Always ask implicitly:
 
-The query should prioritize retrieval efficiency and usually be shorter.
+"If an active researcher would be a plausible author for this Special Issue, could this search strategy find at least one of their recent papers?"
 
-The keyword list may be broader and more detailed for secondary screening.
+If the answer is likely no because the query is too narrow, broaden the recognized technical vocabulary or create an additional retrieval pathway.
 
-The semicolon-separated list must contain exactly the same terms and the same order as [KEYWORD_LIST].
+At the same time ask:
+
+"Would this term retrieve a very large unrelated research community even without any connection to the Special Issue?"
+
+If yes, remove it or constrain it using an appropriate AND group.
+
+The final search strategy should maximize useful potential-author coverage, not merely keyword similarity to the Special Issue webpage.
+
+Return only the requested structured output.
+`;
+
+       const userPrompt = `
+The following content is taken from a Special Issue webpage.
+
+It may contain:
+
+- Special Issue title;
+- Special Issue description;
+- aims and scope;
+- explicitly listed topics;
+- official keywords;
+- Guest Editor interests;
+- affiliations;
+- graphical abstract text or graphical abstract description;
+- administrative information.
+
+Your task is to generate a HIGH-RECALL literature search strategy specifically for POTENTIAL AUTHOR DISCOVERY.
+
+==================================================
+TASK
+==================================================
+
+Based on the provided Special Issue information:
+
+1. Identify the core research field.
+
+2. Identify its broader first-level academic field.
+
+3. Determine whether the Special Issue requires one or multiple retrieval pathways.
+
+4. Construct ONE final Scopus/Scilit-compatible Boolean search query.
+
+The query should internally combine, when applicable:
+
+A. Core technology / core research topic
+   +
+   relevant application or problem boundary;
+
+B. Core technology / core research topic
+   +
+   process engineering, reactor design, modeling, CFD, optimization,
+   continuous operation, scale-up, pilot-scale, industrial implementation,
+   energy-efficiency, or related engineering directions explicitly supported
+   by the Special Issue;
+
+C. Core technology / core research topic
+   +
+   hybrid, integrated, coupled, sustainability, or other clearly supported
+   emerging directions.
+
+Combine applicable retrieval pathways with OR.
+
+IMPORTANT:
+
+Do NOT require one paper to cover all dimensions of the Special Issue.
+
+The objective is to find researchers who could plausibly contribute to ANY substantial branch of the Special Issue.
+
+==================================================
+POTENTIAL-AUTHOR SEARCH PHILOSOPHY
+==================================================
+
+Optimize for author discovery rather than perfect-paper matching.
+
+The search should be broad enough to retrieve:
+
+- researchers directly publishing under the core field name;
+- researchers publishing under major subfield terminology;
+- researchers working on recognized technologies belonging to the field;
+- researchers focusing on process engineering or scale-up aspects;
+- researchers working on important integrated or hybrid approaches.
+
+Do not depend only on literal Special Issue title wording.
+
+Use established disciplinary knowledge to expand terminology.
+
+At the same time, preserve the actual Special Issue boundary using appropriate application/problem/process constraints.
+
+==================================================
+GRAPHICAL ABSTRACT
+==================================================
+
+If graphical abstract information is included in the selected content:
+
+Use it to identify:
+
+- scientific challenges;
+- technical solutions;
+- mechanisms;
+- engineering bottlenecks;
+- application areas;
+- expected outcomes.
+
+Give graphical abstract information meaningful weight, but do not mechanically turn every graphical label into a Boolean term.
+
+If no graphical abstract information is present, ignore this section.
+
+==================================================
+SEARCH QUERY RULES
+==================================================
+
+The final query MUST use:
+
+TITLE-ABS-KEY(...)
+
+The complete query MUST be on ONE SINGLE LINE.
+
+It may use logic such as:
+
+TITLE-ABS-KEY(((core technologies) AND (application boundary)) OR ((core technologies) AND (process engineering directions)) OR ((core technologies) AND (hybrid/integration directions)))
+
+Only include pathways genuinely supported by the Special Issue.
+
+Use quotation marks for multi-word phrases.
+
+Avoid ambiguous abbreviations.
+
+Avoid excessively narrow conditions.
+
+Avoid generic standalone terms that would generate large irrelevant result sets.
+
+Do NOT arbitrarily limit the query to 10–30 expressions.
+
+Use sufficient recognized vocabulary to achieve strong potential-author recall.
+
+==================================================
+SCREENING KEYWORDS
+==================================================
+
+Generate a separate screening keyword list.
+
+This list will later be used by an AI-based system to score exported papers based on:
+
+- Reference/title;
+- Keywords;
+- Abstract.
+
+Therefore the screening vocabulary should be broader and more granular than the Boolean retrieval query.
+
+Prefer approximately 30–80 useful terms depending on the breadth of the Special Issue.
+
+Include secondary technical concepts even when they should not become mandatory Boolean query terms.
 
 ==================================================
 OUTPUT FORMAT
 ==================================================
 
-Return strictly:
+Return STRICTLY in the following format:
 
 [CORE_FIELD]
 Core research field in English
@@ -1722,7 +1953,7 @@ Core research field in English
 Broader first-level academic field in English
 
 [SCILIT_SEARCH_QUERY]
-TITLE-ABS-KEY(("term 1" OR "term 2" OR "term 3"))
+TITLE-ABS-KEY(...)
 
 [KEYWORD_LIST]
 keyword 1
@@ -1732,11 +1963,15 @@ keyword 3
 [KEYWORD_LIST_SEMICOLON]
 keyword 1；keyword 2；keyword 3
 
-The content after [SCILIT_SEARCH_QUERY] must be one single line.
+The content after [SCILIT_SEARCH_QUERY] MUST be exactly one single line.
 
-Do not add explanations.
+The terms in [KEYWORD_LIST_SEMICOLON] must be identical to [KEYWORD_LIST] and in exactly the same order.
 
-Selected Special Issue text:
+Do not add explanations before or after these sections.
+
+==================================================
+SPECIAL ISSUE CONTENT
+==================================================
 
 ${selectedText}
 `;
