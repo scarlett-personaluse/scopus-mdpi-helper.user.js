@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.7
+// @version      4.8.0
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
-// @description  Match scholars with Processes Special Issues and generate literature search queries
+// @description  Match scholars with Processes Special Issues and generate controlled potential-author search strategies
 // @match        *://*/*
 // @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @grant        GM_xmlhttpRequest
@@ -200,7 +200,7 @@
             document.createElement("button");
 
         miniButton.id = UI_IDS.MINI_BUTTON;
-        miniButton.textContent = "SI Title";
+        miniButton.textContent = "SI PA";
         miniButton.type = "button";
 
         Object.assign(
@@ -253,7 +253,7 @@
 
         panel.innerHTML = `
             <div id="${UI_IDS.DRAG_HANDLE}" class="processes-si-header">
-                <span>Processes SI Matcher</span>
+                <span>Processes SI Matcher v4.8</span>
 
                 <button
                     id="${UI_IDS.MINIMIZE}"
@@ -278,7 +278,7 @@
                     type="button"
                     class="processes-si-button"
                 >
-                    Generate Scilit Query + Keywords
+                    Generate PA Search Strategy
                 </button>
 
                 <button
@@ -1412,9 +1412,17 @@ ${selectedText}
         const selectedText =
             getSelectedText();
 
-        if (!selectedText) {
+        const pageContext =
+            collectPASearchPageContext(
+                selectedText
+            );
+
+        if (
+            !pageContext.contentText ||
+            pageContext.contentText.trim().length < 80
+        ) {
             alert(
-                "Please select the Special Issue title, summary, keywords, Guest Editor interests, or scope text first."
+                "Please select the Special Issue title, summary, keywords, Guest Editor interests, scope text, or open an MDPI Special Issue page first."
             );
 
             return;
@@ -1428,392 +1436,219 @@ ${selectedText}
         }
 
         setOutput(
-            "Generating Scilit search query and keyword list..."
+            "Generating controlled PA search strategy..."
         );
 
-       const systemPrompt = `
-You are an expert in bibliographic database searching, academic field classification, Boolean query design, and Special Issue potential-author discovery.
+        const systemPrompt = `
+You are an expert in bibliographic database searching, academic field classification, Boolean query design, Special Issue topic analysis, and potential-author discovery.
 
-Your task is NOT simply to generate keywords for literature review.
+Your task is to create a CONTROLLED-RECALL search strategy for finding plausible potential authors for a given academic Special Issue.
 
-Your primary objective is to design a literature retrieval strategy that MAXIMIZES the discovery of researchers who are plausible potential authors for a given academic Special Issue, while maintaining a reasonable thematic boundary.
-
-The retrieved literature will later be screened using article titles, abstracts, and keywords. Therefore, prioritize RECALL over excessive precision at the initial retrieval stage.
+The goal is NOT to retrieve only perfect-match papers.
+The goal is to retrieve distinct researcher communities that could plausibly contribute to the Special Issue, while keeping the database query compact, structured, and thematically controlled.
 
 ==================================================
 PRIMARY OBJECTIVE
 ==================================================
 
-Given Special Issue information, construct a search strategy that:
+Generate a practical potential-author discovery strategy that:
 
-1. Retrieves researchers directly working on the core Special Issue topic;
-2. Retrieves researchers working on established technical branches that clearly belong to that topic;
-3. Retrieves researchers working on important process, engineering, application, scale-up, optimization, or integration directions explicitly supported by the Special Issue;
-4. Avoids unnecessarily narrow AND conditions that exclude potentially relevant authors;
-5. Avoids uncontrolled expansion into the entire broader academic discipline.
+1. Finds researchers directly working on the core Special Issue topic;
+2. Finds researchers working on major recognized technical branches of that topic;
+3. Finds researchers working on explicitly supported process, reactor, engineering, modeling, scale-up, energy, hybrid, integration, or sustainability directions;
+4. Avoids over-restrictive AND chains that require one paper to cover every SI dimension;
+5. Avoids uncontrolled OR expansion that retrieves the whole broader discipline;
+6. Keeps the Boolean query much more compact than the screening keyword list.
 
-The goal is to build a LARGE BUT RELEVANT potential-author pool.
+Optimize for HIGH AUTHOR RECALL WITH CONTROLLED VOCABULARY.
 
-Do not optimize the query only for highly specific papers.
+A longer query is not automatically better.
+A term should enter the Boolean query only if it helps retrieve a meaningful additional researcher community or preserves a necessary Special Issue boundary.
 
 ==================================================
 EVIDENCE PRIORITY
 ==================================================
 
-Determine the scope using the following priority:
+Use the Special Issue evidence in this order:
 
 1. Special Issue title;
-2. Special Issue aims, summary, and description;
+2. Special Issue description, aims, and scope;
 3. Explicitly listed topics;
-4. Official Special Issue keywords;
-5. Graphical abstract content or graphical abstract description, if provided;
-6. Guest Editor research interests.
+4. Official webpage keywords;
+5. Graphical abstract text, alt text, caption, filename, or readable description if provided;
+6. Guest Editor interests.
 
 The title defines the main conceptual boundary.
+The description, topics, keywords, and graphical abstract define important branches, applications, challenges, and engineering extensions.
+Guest Editor interests may support interpretation but must not independently broaden the scope beyond the SI text.
 
-The aims, topics, keywords, and graphical abstract define important branches, applications, challenges, and emerging directions.
-
-Guest Editor interests may support interpretation but must NOT independently broaden the Special Issue beyond its stated scope.
-
-Ignore administrative content such as:
-
-- manuscript deadline;
-- submission instructions;
-- APC;
-- peer-review information;
-- journal frequency;
-- formatting requirements;
-- English editing information.
+Ignore administrative information, including deadlines, APC, submission instructions, peer-review details, journal frequency, formatting rules, and English-editing statements.
 
 ==================================================
-STEP 1 — IDENTIFY THE RETRIEVAL ARCHITECTURE
+CONTROLLED-RECALL PRINCIPLE
 ==================================================
 
-Before constructing the query, internally identify:
+Do NOT maximize the number of Boolean search terms.
+Maximize coverage of distinct plausible author communities.
 
-A. CORE FIELD
+Prefer representative field-identifying expressions over long lists of narrow examples when those examples retrieve essentially the same community.
 
-The central scientific or engineering field explicitly represented by the Special Issue.
+For example, in an environmental treatment SI:
 
-B. CORE TECHNOLOGIES / APPROACHES
+emerging contaminants
 
-Established methods, processes, technology families, mechanisms, or technical categories that researchers in this field commonly use.
+may be better in the Boolean query than separately listing pharmaceuticals, antibiotics, pesticides, dyes, endocrine disruptors, PFAS, phenols, and chlorinated compounds.
 
-C. APPLICATION / PROBLEM BOUNDARY
+The specific pollutants may be placed in the screening keyword list instead.
 
-The application areas, research problems, environmental/industrial systems, target objects, or practical contexts that keep the search relevant to the Special Issue.
+Likewise, a technical family such as:
 
-D. PROCESS / ENGINEERING EXTENSIONS
+persulfate activation
 
-When supported by the Special Issue, identify relevant directions such as:
-
-- reactor design;
-- process design;
-- process optimization;
-- modeling;
-- computational fluid dynamics;
-- transport phenomena;
-- continuous systems;
-- process intensification;
-- scale-up;
-- pilot-scale application;
-- industrial application;
-- energy efficiency;
-- economic performance;
-- sustainability.
-
-E. INTEGRATED / HYBRID DIRECTIONS
-
-When supported by the Special Issue, identify:
-
-- hybrid processes;
-- integrated technologies;
-- coupled treatment;
-- combinations with other relevant technologies.
-
-Do NOT output this internal reasoning.
+normally does not require expansion into every oxidant, radical, catalyst material, pollutant type, and reactor configuration in the Boolean query.
 
 ==================================================
-STEP 2 — BUILD MULTIPLE RETRIEVAL PATHWAYS
+TERM BUDGET
 ==================================================
 
-Do NOT assume that one simple OR list is always sufficient.
+Use a controlled term budget.
 
-For potential-author discovery, construct the Boolean logic conceptually from up to THREE retrieval pathways when appropriate:
+CORE TECHNOLOGY GROUP:
+Normally 8 to 20 expressions.
 
-PATHWAY A — Core technology + application/problem
+APPLICATION / PROBLEM GROUP:
+Normally 5 to 12 expressions.
 
-This captures researchers directly working on the main Special Issue topic.
+PROCESS / ENGINEERING GROUP:
+Normally 5 to 12 expressions.
 
-General structure:
+HYBRID / INTEGRATION GROUP:
+Normally 4 to 10 expressions.
 
-(
-    core field / technologies
-)
-AND
-(
-    relevant applications / problems
-)
+Do not exceed these ranges unless the Special Issue genuinely covers several distinct, established research communities.
 
-PATHWAY B — Core technology + process/engineering development
+Every Boolean term must pass this test:
 
-Use this pathway when the Special Issue explicitly includes reactor design, process engineering, CFD, optimization, continuous systems, scale-up, energy efficiency, industrial implementation, or similar topics.
+Would removing this term make a meaningful group of plausible Special Issue authors difficult to retrieve?
 
-General structure:
-
-(
-    core field / technologies
-)
-AND
-(
-    reactor / process / engineering / scale-up terms
-)
-
-PATHWAY C — Core technology + hybrid/integration/emerging directions
-
-Use this pathway when hybridization, integration, coupled processes, sustainability, energy efficiency, or related directions are explicitly within scope.
-
-General structure:
-
-(
-    core field / technologies
-)
-AND
-(
-    hybrid / integration / sustainability-related terms
-)
-
-Combine the applicable pathways using OR:
-
-TITLE-ABS-KEY(
-    (PATHWAY A)
-    OR
-    (PATHWAY B)
-    OR
-    (PATHWAY C)
-)
-
-Do NOT force all Special Issue aspects into one giant AND condition.
-
-A paper does NOT need to cover every Special Issue topic to represent a useful potential author.
+If no, do not include it in the Boolean query. Put it in the screening keyword list if useful.
 
 ==================================================
-STEP 3 — EXPAND THE CORE TECHNOLOGY VOCABULARY
+RETRIEVAL PATHWAYS
 ==================================================
 
-Expand the core topic using professional academic terminology.
+Construct no more than THREE retrieval pathways.
 
-Include where genuinely relevant:
+PATHWAY A — Core technology plus application/problem boundary
 
-- full field names;
-- standard synonyms;
-- spelling variants;
-- major technical categories;
-- well-established sub-processes;
-- representative technologies;
-- common mechanism-based terminology;
-- commonly used database terminology.
+Purpose:
+Retrieve researchers directly working on the main technologies or field of the SI in the relevant application domain.
 
-A researcher should still be discoverable even if the exact Special Issue title does not appear in the paper.
+Structure:
+(core technologies) AND (application/problem boundary)
 
-For example, if a Special Issue concerns advanced oxidation processes, authors may publish primarily using terms such as:
+PATHWAY B — Core technology plus process/engineering development
 
-- photocatalysis;
-- Fenton processes;
-- persulfate activation;
-- ozonation;
-- electrochemical oxidation;
+Use only if the SI explicitly includes reactor design, process engineering, modeling, CFD, optimization, continuous systems, scale-up, pilot-scale, industrial implementation, cost, energy efficiency, or similar directions.
 
-without explicitly writing "advanced oxidation process" in every paper.
+Structure:
+(core technologies) AND (process/engineering terms)
 
-Therefore, recognized technical families should be included when supported by the Special Issue.
+PATHWAY C — Core technology plus hybrid/integration direction
 
-==================================================
-STEP 4 — CONTROL RECALL AND PRECISION
-==================================================
+Use only if the SI explicitly includes hybridization, integration, coupled processes, combined processes, or related directions.
 
-The query is intended for POTENTIAL AUTHOR DISCOVERY.
+Structure:
+(core technologies) AND (hybrid/integration terms)
 
-Therefore:
+IMPORTANT:
 
-Prefer moderate-to-high recall.
-
-It is acceptable to retrieve some borderline papers because a second-stage screening system will evaluate titles, abstracts, and keywords.
-
-However, avoid terms that independently retrieve extremely broad unrelated communities.
-
-Do NOT use vague standalone expressions such as:
-
-- process
-- system
-- technology
-- material
-- degradation
-- optimization
-- simulation
-- model
-- treatment
-- energy
-- sustainability
-- environment
-
-unless they occur inside a meaningful technical phrase or are protected by an AND condition with the core field.
-
-Do NOT use ambiguous abbreviations alone unless their meaning is highly specific in the field.
-
-For example, avoid standalone abbreviations that have many meanings across disciplines.
-
-Prefer the full technical expression.
+Do not use Pathway C to introduce extra core technologies.
+Core technologies belong in the CORE_TECHNOLOGY_TERMS section.
+Hybrid terms should describe integration, coupling, or combination, not repeat the core technology list.
 
 ==================================================
-STEP 5 — DO NOT OVER-RESTRICT
+NO CATCH-ALL BRANCH
 ==================================================
 
-Do NOT require narrow target pollutants, specific materials, individual catalysts, individual reactor geometries, or individual applications unless they represent a major branch of the Special Issue.
+Do NOT create an additional unstructured catch-all OR branch after the structured pathways.
 
-Specific examples may be included in the screening keyword list without becoming mandatory search conditions.
+The final query must contain ONLY the applicable pathway queries.
 
-Do NOT construct queries such as:
+Do NOT append a large loose list of extra technologies, pollutants, materials, catalysts, reactor types, sustainability terms, or applications.
 
-core technology
-AND specific pollutant
-AND specific catalyst
-AND reactor
-AND optimization
+The final query must be built only from PATHWAY_A, PATHWAY_B, and PATHWAY_C.
 
-because this would exclude most relevant authors.
-
-Remember:
-
-The unit of interest is the RESEARCHER, not only the individual perfect-match paper.
-
-A researcher with several relevant publications is valuable even if each individual publication covers only part of the Special Issue.
+No Boolean search term may appear in FINAL_SEARCH_QUERY unless it already appears in one of the pathway queries.
 
 ==================================================
-STEP 6 — GRAPHICAL ABSTRACT
+SEARCH QUERY VS SCREENING KEYWORDS
 ==================================================
 
-If graphical abstract information is provided, use it as substantive scope evidence.
+Strictly separate database retrieval vocabulary from AI screening vocabulary.
 
-Extract from it:
+DATABASE SEARCH QUERY:
+- compact;
+- structured;
+- high-value;
+- field-identifying;
+- designed to retrieve relevant researcher communities.
 
-- major challenges;
-- core technologies;
-- mechanisms;
-- process directions;
-- application areas;
-- bottlenecks;
-- desired outcomes.
+SCREENING KEYWORD LIST:
+- broader;
+- more granular;
+- may include specific pollutants, materials, catalyst classes, mechanisms, reactor terms, performance indicators, by-products, toxicity, cost, energy, sustainability, and application examples.
 
-Do NOT simply convert every label in the graphical abstract into a search term.
-
-Use graphical abstract information to identify retrieval pathways and important screening vocabulary.
-
-If no graphical abstract information is provided, proceed normally without it.
+Do not move screening-level vocabulary into the Boolean query unless it is necessary to retrieve a distinct author community.
 
 ==================================================
 BOOLEAN QUERY REQUIREMENTS
 ==================================================
 
-Use Scopus-style syntax:
+Use Scopus/Scilit-style syntax:
 
 TITLE-ABS-KEY(...)
 
-The complete Boolean query MUST appear on ONE SINGLE LINE.
+Every query section must be on one single line.
 
 Use quotation marks for multi-word phrases.
+Use OR for synonyms, spelling variants, parallel technical branches, and representative technologies.
+Use AND only between independent conceptual groups that are necessary to preserve SI relevance.
 
-Use OR for:
+Avoid ambiguous abbreviations alone.
+Prefer full technical expressions unless the abbreviation is highly field-specific and useful.
 
-- synonyms;
-- equivalent terminology;
-- parallel technical branches;
-- representative technologies.
+Avoid generic standalone terms such as:
+process, system, technology, material, performance, model, simulation, optimization, treatment, energy, sustainability, environment.
 
-Use AND to connect only independent conceptual groups that are both necessary to preserve Special Issue relevance.
-
-Use parentheses carefully.
-
-The query may contain multiple OR-connected retrieval pathways.
-
-There is NO fixed 10–30 term limit.
-
-Use as many terms as are reasonably needed to represent the field, but avoid redundant near-duplicates and unnecessary long-tail terms.
-
-The final query should normally be comprehensive enough for potential-author discovery but still practical for a bibliographic database.
+These may appear only as part of meaningful technical phrases or inside a properly constrained pathway.
 
 ==================================================
-KEYWORD LIST
+GRAPHICAL ABSTRACT HANDLING
 ==================================================
 
-Generate a broader keyword list for SECOND-STAGE screening of:
+If graphical abstract text, alt text, caption, filename, or a readable description is provided, use it as supporting scope evidence.
 
-- article titles;
-- abstracts;
-- author keywords.
+If only a graphical abstract image URL is provided with no readable text, do not infer image content from the pixels. Treat it only as metadata.
 
-The keyword list should normally contain approximately 30–80 terms when the Special Issue has a broad technical scope.
-
-It may include:
-
-- core field terminology;
-- major technical branches;
-- mechanisms;
-- representative technologies;
-- important target problems;
-- important applications;
-- reactor/process terminology;
-- scale-up terminology;
-- hybrid/integrated process terminology;
-- energy-efficiency terminology;
-- sustainability terminology;
-- relevant materials or pollutant classes when appropriate.
-
-The keyword list may be broader than the Boolean search query.
-
-Do not include Boolean operators.
-
-Do not number the terms.
-
-Put one keyword or phrase on each line.
+Do not mechanically convert every graphical abstract label into a Boolean term.
+Use it to identify major challenges, technologies, mechanisms, applications, bottlenecks, and expected outcomes.
 
 ==================================================
-FINAL PRINCIPLES
+OUTPUT REQUIREMENTS
 ==================================================
-
-Always ask implicitly:
-
-"If an active researcher would be a plausible author for this Special Issue, could this search strategy find at least one of their recent papers?"
-
-If the answer is likely no because the query is too narrow, broaden the recognized technical vocabulary or create an additional retrieval pathway.
-
-At the same time ask:
-
-"Would this term retrieve a very large unrelated research community even without any connection to the Special Issue?"
-
-If yes, remove it or constrain it using an appropriate AND group.
-
-The final search strategy should maximize useful potential-author coverage, not merely keyword similarity to the Special Issue webpage.
 
 Return only the requested structured output.
+
+The final output must allow a human editor to see the strategy and quickly judge whether the model created a clean pathway-based query.
+
+Do not add explanations outside the required sections.
 `;
 
-       const userPrompt = `
-The following content is taken from a Special Issue webpage.
+        const userPrompt = `
+The following content is taken from a Special Issue webpage and possibly the current page context.
 
-It may contain:
-
-- Special Issue title;
-- Special Issue description;
-- aims and scope;
-- explicitly listed topics;
-- official keywords;
-- Guest Editor interests;
-- affiliations;
-- graphical abstract text or graphical abstract description;
-- administrative information.
-
-Your task is to generate a HIGH-RECALL literature search strategy specifically for POTENTIAL AUTHOR DISCOVERY.
+Your task is to generate a HIGH-AUTHOR-RECALL but CONTROLLED potential-author search strategy.
 
 ==================================================
 TASK
@@ -1822,123 +1657,74 @@ TASK
 Based on the provided Special Issue information:
 
 1. Identify the core research field.
+2. Identify the broader first-level academic field.
+3. Build a compact core technology group.
+4. Decide which retrieval pathways are needed.
+5. Build Pathway A, Pathway B, and Pathway C when appropriate.
+6. Build one final Scopus/Scilit-compatible Boolean search query by combining only the applicable pathways with OR.
+7. Generate a broader AI screening keyword list.
 
-2. Identify its broader first-level academic field.
-
-3. Determine whether the Special Issue requires one or multiple retrieval pathways.
-
-4. Construct ONE final Scopus/Scilit-compatible Boolean search query.
-
-The query should internally combine, when applicable:
-
-A. Core technology / core research topic
-   +
-   relevant application or problem boundary;
-
-B. Core technology / core research topic
-   +
-   process engineering, reactor design, modeling, CFD, optimization,
-   continuous operation, scale-up, pilot-scale, industrial implementation,
-   energy-efficiency, or related engineering directions explicitly supported
-   by the Special Issue;
-
-C. Core technology / core research topic
-   +
-   hybrid, integrated, coupled, sustainability, or other clearly supported
-   emerging directions.
-
-Combine applicable retrieval pathways with OR.
-
-IMPORTANT:
-
-Do NOT require one paper to cover all dimensions of the Special Issue.
-
-The objective is to find researchers who could plausibly contribute to ANY substantial branch of the Special Issue.
+The final query must be suitable for potential-author discovery, not only literature review.
 
 ==================================================
-POTENTIAL-AUTHOR SEARCH PHILOSOPHY
+QUERY DESIGN RULES
 ==================================================
 
-Optimize for author discovery rather than perfect-paper matching.
+Do not require one paper to cover every dimension of the Special Issue.
 
-The search should be broad enough to retrieve:
+Do not use one giant OR list that mixes technologies, applications, reactor terms, pollutants, materials, and sustainability concepts without structure.
 
-- researchers directly publishing under the core field name;
-- researchers publishing under major subfield terminology;
-- researchers working on recognized technologies belonging to the field;
-- researchers focusing on process engineering or scale-up aspects;
-- researchers working on important integrated or hybrid approaches.
+Do not create a fourth catch-all branch.
 
-Do not depend only on literal Special Issue title wording.
+Do not put detailed pollutant names, individual catalyst materials, individual reactor geometries, or broad sustainability slogans into the Boolean query unless they represent a distinct and necessary author community.
 
-Use established disciplinary knowledge to expand terminology.
+Detailed examples are usually better placed in the screening keyword list.
 
-At the same time, preserve the actual Special Issue boundary using appropriate application/problem/process constraints.
+Pathway A should represent:
+core technology plus application/problem boundary.
 
-==================================================
-GRAPHICAL ABSTRACT
-==================================================
+Pathway B should represent:
+core technology plus process/engineering development.
 
-If graphical abstract information is included in the selected content:
+Pathway C should represent:
+core technology plus hybrid/integration direction.
 
-Use it to identify:
-
-- scientific challenges;
-- technical solutions;
-- mechanisms;
-- engineering bottlenecks;
-- application areas;
-- expected outcomes.
-
-Give graphical abstract information meaningful weight, but do not mechanically turn every graphical label into a Boolean term.
-
-If no graphical abstract information is present, ignore this section.
+If Pathway B or C is not clearly supported by the Special Issue, output NOT NEEDED for that pathway.
 
 ==================================================
-SEARCH QUERY RULES
+FINAL QUERY RULE
 ==================================================
 
-The final query MUST use:
+FINAL_SEARCH_QUERY must be constructed only by combining the pathway queries.
 
-TITLE-ABS-KEY(...)
+Do not introduce any new Boolean search term in FINAL_SEARCH_QUERY that did not appear in PATHWAY_A, PATHWAY_B, or PATHWAY_C.
 
-The complete query MUST be on ONE SINGLE LINE.
-
-It may use logic such as:
-
-TITLE-ABS-KEY(((core technologies) AND (application boundary)) OR ((core technologies) AND (process engineering directions)) OR ((core technologies) AND (hybrid/integration directions)))
-
-Only include pathways genuinely supported by the Special Issue.
-
-Use quotation marks for multi-word phrases.
-
-Avoid ambiguous abbreviations.
-
-Avoid excessively narrow conditions.
-
-Avoid generic standalone terms that would generate large irrelevant result sets.
-
-Do NOT arbitrarily limit the query to 10–30 expressions.
-
-Use sufficient recognized vocabulary to achieve strong potential-author recall.
+If a concept appears only in the screening keyword list, it must not appear in FINAL_SEARCH_QUERY.
 
 ==================================================
 SCREENING KEYWORDS
 ==================================================
 
-Generate a separate screening keyword list.
+Generate 40 to 70 screening keywords when the SI is broad.
 
-This list will later be used by an AI-based system to score exported papers based on:
+The screening keyword list may include:
 
-- Reference/title;
-- Keywords;
-- Abstract.
+- core field names;
+- major technical branches;
+- mechanisms;
+- specific methods;
+- representative materials or catalysts;
+- target pollutants or applications;
+- reactor and process terms;
+- scale-up terms;
+- hybrid/integration terms;
+- energy and cost terms;
+- sustainability terms;
+- by-products, toxicity, performance, and mechanism terms.
 
-Therefore the screening vocabulary should be broader and more granular than the Boolean retrieval query.
-
-Prefer approximately 30–80 useful terms depending on the breadth of the Special Issue.
-
-Include secondary technical concepts even when they should not become mandatory Boolean query terms.
+Do not include Boolean operators in the keyword list.
+Do not number the terms.
+Put one keyword or phrase on each line.
 
 ==================================================
 OUTPUT FORMAT
@@ -1952,7 +1738,47 @@ Core research field in English
 [FIRST_LEVEL_FIELD]
 Broader first-level academic field in English
 
-[SCILIT_SEARCH_QUERY]
+[SEARCH_STRATEGY]
+A concise 2 to 4 sentence explanation in English describing which author communities should be retrieved and why the selected pathways are sufficient.
+
+[CORE_TECHNOLOGY_TERMS]
+term 1
+term 2
+term 3
+
+[APPLICATION_PROBLEM_TERMS]
+term 1
+term 2
+term 3
+
+[PROCESS_ENGINEERING_TERMS]
+term 1
+term 2
+term 3
+Or output exactly:
+NOT NEEDED
+
+[HYBRID_INTEGRATION_TERMS]
+term 1
+term 2
+term 3
+Or output exactly:
+NOT NEEDED
+
+[PATHWAY_A]
+TITLE-ABS-KEY(...)
+
+[PATHWAY_B]
+TITLE-ABS-KEY(...)
+Or output exactly:
+NOT NEEDED
+
+[PATHWAY_C]
+TITLE-ABS-KEY(...)
+Or output exactly:
+NOT NEEDED
+
+[FINAL_SEARCH_QUERY]
 TITLE-ABS-KEY(...)
 
 [KEYWORD_LIST]
@@ -1963,23 +1789,241 @@ keyword 3
 [KEYWORD_LIST_SEMICOLON]
 keyword 1；keyword 2；keyword 3
 
-The content after [SCILIT_SEARCH_QUERY] MUST be exactly one single line.
-
-The terms in [KEYWORD_LIST_SEMICOLON] must be identical to [KEYWORD_LIST] and in exactly the same order.
-
+Each query section must be exactly one single line.
+The terms in [KEYWORD_LIST_SEMICOLON] must be identical to [KEYWORD_LIST] and in the same order.
 Do not add explanations before or after these sections.
+
+==================================================
+CURRENT PAGE CONTEXT
+==================================================
+
+Page title:
+${pageContext.pageTitle}
+
+Page URL:
+${pageContext.pageUrl}
+
+==================================================
+GRAPHICAL ABSTRACT INFORMATION
+==================================================
+
+${pageContext.graphicalAbstractInfo}
 
 ==================================================
 SPECIAL ISSUE CONTENT
 ==================================================
 
-${selectedText}
+${pageContext.contentText}
 `;
 
         callDeepSeek(
             systemPrompt,
             userPrompt,
             apiKey
+        );
+    }
+
+    function collectPASearchPageContext(selectedText) {
+        const cleanSelectedText =
+            normalizeWhitespace(
+                selectedText || ""
+            );
+
+        let autoExtractedText = "";
+
+        if (!cleanSelectedText) {
+            autoExtractedText =
+                extractLikelySpecialIssueText();
+        }
+
+        const contentText =
+            trimTextForApi(
+                cleanSelectedText || autoExtractedText,
+                24000
+            );
+
+        return {
+            pageTitle: String(document.title || "").trim(),
+            pageUrl: String(window.location.href || "").trim(),
+            contentText: contentText,
+            graphicalAbstractInfo: collectGraphicalAbstractInfo()
+        };
+    }
+
+    function extractLikelySpecialIssueText() {
+        const isLikelyMdpiSIPage =
+            /mdpi\.com/i.test(window.location.hostname || "") &&
+            /special_issues/i.test(window.location.href || "");
+
+        if (!isLikelyMdpiSIPage) {
+            return "";
+        }
+
+        const preferredSelectors = [
+            "h1",
+            "#editors",
+            "#info",
+            "#keywords",
+            "main",
+            ".middle-column",
+            ".content__container",
+            ".page-content",
+            "body"
+        ];
+
+        const parts = [];
+
+        preferredSelectors.forEach(
+            function (selector) {
+                const element =
+                    document.querySelector(selector);
+
+                if (
+                    element &&
+                    element.innerText &&
+                    element.innerText.trim()
+                ) {
+                    parts.push(
+                        element.innerText.trim()
+                    );
+                }
+            }
+        );
+
+        const combined =
+            normalizeWhitespace(
+                parts.join("\n\n")
+            );
+
+        return trimTextForApi(
+            combined,
+            24000
+        );
+    }
+
+    function collectGraphicalAbstractInfo() {
+        const images =
+            Array.from(
+                document.images || []
+            );
+
+        const candidates =
+            images
+                .map(
+                    function (image) {
+                        const src =
+                            image.currentSrc ||
+                            image.src ||
+                            "";
+
+                        const alt =
+                            image.alt ||
+                            "";
+
+                        const title =
+                            image.title ||
+                            "";
+
+                        const combined =
+                            [src, alt, title]
+                                .join(" ");
+
+                        return {
+                            src: toAbsoluteUrl(src),
+                            alt: alt.trim(),
+                            title: title.trim(),
+                            width: image.naturalWidth || image.width || "",
+                            height: image.naturalHeight || image.height || "",
+                            score: scoreGraphicalAbstractCandidate(combined)
+                        };
+                    }
+                )
+                .filter(
+                    item => item.src && item.score > 0
+                )
+                .sort(
+                    function (a, b) {
+                        return b.score - a.score;
+                    }
+                )
+                .slice(0, 5);
+
+        if (!candidates.length) {
+            return "No graphical abstract metadata detected. If the GA is image-only, the text model cannot read it unless the user selects or pastes its textual description.";
+        }
+
+        const lines = [
+            "Detected possible graphical abstract image metadata. Use only readable alt/title/filename information; do not infer image pixels."
+        ];
+
+        candidates.forEach(
+            function (item, index) {
+                lines.push(
+                    [
+                        `GA candidate ${index + 1}:`,
+                        `URL=${item.src}`,
+                        item.alt ? `alt=${item.alt}` : "alt=",
+                        item.title ? `title=${item.title}` : "title=",
+                        item.width && item.height ? `size=${item.width}x${item.height}` : "size="
+                    ].join(" ")
+                );
+            }
+        );
+
+        return lines.join("\n");
+    }
+
+    function scoreGraphicalAbstractCandidate(text) {
+        const value =
+            String(text || "").toLowerCase();
+
+        let score = 0;
+
+        if (/special_issues_graphic_abstract/.test(value)) score += 5;
+        if (/graphic[_-]?abstract/.test(value)) score += 5;
+        if (/ga[_-]?banner/.test(value)) score += 4;
+        if (/graphical/.test(value)) score += 3;
+        if (/abstract/.test(value)) score += 2;
+        if (/banner/.test(value)) score += 1;
+        if (/flyer/.test(value)) score += 1;
+
+        return score;
+    }
+
+    function toAbsoluteUrl(url) {
+        try {
+            return new URL(
+                url,
+                window.location.href
+            ).href;
+        } catch (error) {
+            return String(url || "");
+        }
+    }
+
+    function normalizeWhitespace(text) {
+        return String(text || "")
+            .replace(/\r/g, "\n")
+            .replace(/[\t\u00A0]+/g, " ")
+            .replace(/[ ]{2,}/g, " ")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+    }
+
+    function trimTextForApi(text, maxLength) {
+        const value =
+            String(text || "").trim();
+
+        const limit =
+            Number(maxLength) || 24000;
+
+        if (value.length <= limit) {
+            return value;
+        }
+
+        return (
+            value.slice(0, limit) +
+            "\n\n[Content truncated because it exceeded the maximum length passed to the API.]"
         );
     }
 
@@ -2186,46 +2230,80 @@ ${selectedText}
     function forceSingleLineSearchQuery(
         text
     ) {
-        if (
-            !text ||
-            !/\[SCILIT_SEARCH_QUERY\]/i.test(
-                text
-            )
-        ) {
+        let result =
+            String(text || "");
+
+        const querySectionNames = [
+            "SCILIT_SEARCH_QUERY",
+            "PATHWAY_A",
+            "PATHWAY_B",
+            "PATHWAY_C",
+            "FINAL_SEARCH_QUERY"
+        ];
+
+        querySectionNames.forEach(
+            function (sectionName) {
+                result =
+                    forceSingleLineNamedQuerySection(
+                        result,
+                        sectionName
+                    );
+            }
+        );
+
+        return result;
+    }
+
+    function forceSingleLineNamedQuerySection(
+        text,
+        sectionName
+    ) {
+        if (!text) {
             return text;
         }
 
-        const querySectionPattern =
-            /(\[SCILIT_SEARCH_QUERY\]\s*)([\s\S]*?)(?=\n\s*\[KEYWORD_LIST\])/i;
+        const escapedSectionName =
+            sectionName.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                "\\$&"
+            );
 
-        return text.replace(
-            querySectionPattern,
+        const pattern =
+            new RegExp(
+                "(\\[" + escapedSectionName + "\\]\\s*)([\\s\\S]*?)(?=\\n\\s*\\[[A-Z0-9_]+\\]|\\s*$)",
+                "i"
+            );
+
+        return String(text).replace(
+            pattern,
             function (
                 fullMatch,
                 header,
-                querySection
+                sectionContent
             ) {
+                const raw =
+                    String(sectionContent || "")
+                        .trim();
+
+                if (!raw) {
+                    return fullMatch;
+                }
+
+                if (/^NOT NEEDED$/i.test(raw)) {
+                    return (
+                        header.trim() +
+                        "\n" +
+                        "NOT NEEDED" +
+                        "\n\n"
+                    );
+                }
+
                 const singleLineQuery =
-                    String(
-                        querySection ||
-                        ""
-                    )
-                        .replace(
-                            /\r?\n+/g,
-                            " "
-                        )
-                        .replace(
-                            /\s{2,}/g,
-                            " "
-                        )
-                        .replace(
-                            /\(\s+/g,
-                            "("
-                        )
-                        .replace(
-                            /\s+\)/g,
-                            ")"
-                        )
+                    raw
+                        .replace(/\r?\n+/g, " ")
+                        .replace(/\s{2,}/g, " ")
+                        .replace(/\(\s+/g, "(")
+                        .replace(/\s+\)/g, ")")
                         .trim();
 
                 return (
